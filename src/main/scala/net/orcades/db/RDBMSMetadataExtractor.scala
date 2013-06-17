@@ -1,15 +1,11 @@
 package net.orcades.db
 
-import scala.slick.session.Database
-import scala.slick.driver.BasicDriver.Implicit._
-import Database.threadLocalSession
-import scala.slick.session.Session
 import java.sql.ResultSet
 import java.sql.Types
 import scala.collection.mutable.MutableList
 import java.sql.DatabaseMetaData
-
 import scala.collection.parallel.mutable.ParMap
+import java.sql.Connection
 
 sealed trait DBElement {
   def schema
@@ -23,23 +19,15 @@ case class Column(name: String, dataType: String, pk: Boolean, nullable: Boolean
 case class FK(name: String, keys: List[(String, (String, String))])
 
 object RDBMSMetadataExtractor extends App {
-  Database.forURL("jdbc:postgresql:jug", "test", "test", driver = "org.postgresql.Driver") withSession {
-    //    println("Speakers:")
-    //    val v = Users.all
-    //    println(v)
-    //
-    allTables.map(e => println(e))
+ 
 
-  }
-
-  def allTables = {
-
-    val metadata = threadLocalSession.metaData
-    val tables = metadata.getTables(threadLocalSession.conn.getCatalog(), "public", null, Array("TABLE"))
+  def allTables(implicit connection: Connection) = {
+        
+    val tables = connection.getMetaData().getTables(connection.getCatalog(), "public", null, Array("TABLE"))
     val entities = MutableList[Table]()
     while (tables.next()) {
 
-      val entity = dumpTable(metadata, tables.getString("table_name"))
+      val entity = dumpTable(connection.getMetaData(), tables.getString("table_name"))
       if (entity != null)
         entities += entity
 
@@ -74,9 +62,9 @@ object RDBMSMetadataExtractor extends App {
     }
   }
 
-  def dumpTable(metadata: DatabaseMetaData, tableName: String): Table = {
-
-    val rs = metadata.getTables(threadLocalSession.conn.getCatalog(), "public", tableName, null)
+  def dumpTable(metadata: DatabaseMetaData, tableName: String)(implicit connection: Connection): Table = {
+   
+    val rs = metadata.getTables(connection.getCatalog(), "public", tableName, null)
     val props = if (rs.next()) {
       getPropertiesFromRemarks(rs.getString("REMARKS"))
     } else {
@@ -86,8 +74,8 @@ object RDBMSMetadataExtractor extends App {
     if (props.isEmpty)
       return null
 
-    def getPks(): Set[String] = {
-      val rs = metadata.getPrimaryKeys(threadLocalSession.conn.getCatalog(), "public", tableName);
+    def getPks(implicit connection: Connection): Set[String] = {
+      val rs = metadata.getPrimaryKeys(connection.getCatalog(), "public", tableName);
       val set = MutableList[String]()
       while (rs.next()) {
         set += rs.getString("COLUMN_NAME")
@@ -95,8 +83,8 @@ object RDBMSMetadataExtractor extends App {
       set.toSet
     }
 
-    def getFks(): List[FK] = {
-      val rs = metadata.getImportedKeys(threadLocalSession.conn.getCatalog(), "public", tableName);
+    def getFks(implicit connection: Connection): List[FK] = {
+      val rs = metadata.getImportedKeys(connection.getCatalog(), "public", tableName);
       val ff = MutableList[(String, (String, String))]()
       val fks = MutableList[FK]()
 
@@ -116,11 +104,11 @@ object RDBMSMetadataExtractor extends App {
 
     val members = MutableList[Column]()
 
-    val pks = getPks()
+    val pks = getPks(connection)
 
-    val fks = getFks()
+    val fks = getFks(connection)
 
-    val columns = metadata.getColumns(threadLocalSession.conn.getCatalog(), "public", tableName, null);
+    val columns = metadata.getColumns(connection.getCatalog(), "public", tableName, null);
     while (columns.next()) {
       val columnName = columns.getString("COLUMN_NAME")
       val remarks = columns.getString("REMARKS")
@@ -142,7 +130,7 @@ object RDBMSMetadataExtractor extends App {
 
     }
 
-    Table(entityName(tableName), tableName, members.toList, getFks(), props)
+    Table(entityName(tableName), tableName, members.toList, getFks(connection), props)
 
   }
 
