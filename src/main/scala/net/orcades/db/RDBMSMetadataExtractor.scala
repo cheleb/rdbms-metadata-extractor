@@ -6,6 +6,7 @@ import scala.collection.mutable.MutableList
 import java.sql.DatabaseMetaData
 import scala.collection.parallel.mutable.ParMap
 import java.sql.Connection
+import java.sql.DriverManager
 
 sealed trait DBElement {
   def schema
@@ -19,10 +20,18 @@ case class Column(name: String, dataType: String, pk: Boolean, nullable: Boolean
 case class FK(name: String, keys: List[(String, (String, String))])
 
 object RDBMSMetadataExtractor extends App {
- 
+
+  println("test")
+
+  Class.forName("org.postgresql.Driver")
+  val conn = DriverManager.getConnection("jdbc:postgresql:jug", "test", "test")
+
+  val tables = allTables(conn)
+
+  tables.foreach(table => println(table.name + ": " + table.fks))
 
   def allTables(implicit connection: Connection) = {
-        
+
     val tables = connection.getMetaData().getTables(connection.getCatalog(), "public", null, Array("TABLE"))
     val entities = MutableList[Table]()
     while (tables.next()) {
@@ -63,7 +72,7 @@ object RDBMSMetadataExtractor extends App {
   }
 
   def dumpTable(metadata: DatabaseMetaData, tableName: String)(implicit connection: Connection): Table = {
-   
+
     val rs = metadata.getTables(connection.getCatalog(), "public", tableName, null)
     val props = if (rs.next()) {
       getPropertiesFromRemarks(rs.getString("REMARKS"))
@@ -88,17 +97,21 @@ object RDBMSMetadataExtractor extends App {
       val ff = MutableList[(String, (String, String))]()
       val fks = MutableList[FK]()
 
-      while (rs.next()) {
-        if (rs.getInt("KEY_SEQ") == 1 && !ff.isEmpty) {
-          fks += FK(rs.getString("FK_NAME"), ff.toList)
-          ff.clear
-        }
-        val i = (rs.getString("FKCOLUMN_NAME"), (rs.getString("PKTABLE_NAME"), rs.getString("PKCOLUMN_NAME")))
-        ff += i
-        if (rs.isLast())
-          fks += FK(rs.getString("FK_NAME"), ff.toList)
+      if (rs.next()) {
+        var fkName = rs.getString("FK_NAME")
+        do {
+          println(tableName + ": " + rs.getString("FK_NAME") + " - " + rs.getString("FKCOLUMN_NAME"))
+          if (rs.getString("FK_NAME") != fkName) {
+            fks += FK(fkName, ff.toList)
+            ff.clear
+            fkName = rs.getString("FK_NAME")
+          }
+          val i = (rs.getString("FKCOLUMN_NAME"), (rs.getString("PKTABLE_NAME"), rs.getString("PKCOLUMN_NAME")))
+          ff += i
+          if (rs.isLast())
+            fks += FK(rs.getString("FK_NAME"), ff.toList)
+        } while (rs.next())
       }
-
       fks.toList
     }
 
@@ -106,7 +119,7 @@ object RDBMSMetadataExtractor extends App {
 
     val pks = getPks(connection)
 
-    val fks = getFks(connection)
+    //val fks = getFks(connection)
 
     val columns = metadata.getColumns(connection.getCatalog(), "public", tableName, null);
     while (columns.next()) {
