@@ -21,8 +21,6 @@ case class FK(name: String, keys: List[(String, (String, String))])
 
 object RDBMSMetadataExtractor extends App {
 
-  println("test")
-
   Class.forName("org.postgresql.Driver")
   val conn = DriverManager.getConnection("jdbc:postgresql:jug", "test", "test")
 
